@@ -1,0 +1,91 @@
+[package]
+name = "spesa"
+version = "0.2.0"
+edition = "2024"
+description = "SpesaApp - lista della spesa (Leptos full-stack)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "spesa"
+path = "src/main.rs"
+required-features = ["ssr"]
+
+[[bin]]
+name = "init_db"
+path = "src/bin/init_db.rs"
+required-features = ["ssr"]
+
+[[bin]]
+name = "telegram_bot"
+path = "src/bin/telegram_bot.rs"
+required-features = ["ssr"]
+
+[dependencies]
+leptos = "0.8"
+leptos_meta = "0.8"
+leptos_router = "0.8"
+serde = { version = "1", features = ["derive"] }
+
+# hydrate (browser / WASM)
+console_error_panic_hook = { version = "0.1", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", features = ["Event", "EventSource"], optional = true }
+
+# ssr (server)
+anyhow = { version = "1", optional = true }
+axum = { version = "0.8", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+leptos_axum = { version = "0.8", optional = true }
+rusqlite = { version = "0.43", features = ["bundled"], optional = true }
+serde_json = { version = "1", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"], optional = true }
+tokio-stream = { version = "0.1", features = ["sync"], optional = true }
+unicode-normalization = { version = "0.1", optional = true }
+ureq = { version = "3", optional = true }
+
+[features]
+hydrate = [
+    "leptos/hydrate",
+    "dep:console_error_panic_hook",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+]
+ssr = [
+    "leptos/ssr",
+    "leptos_meta/ssr",
+    "leptos_router/ssr",
+    "dep:anyhow",
+    "dep:axum",
+    "dep:clap",
+    "dep:leptos_axum",
+    "dep:rusqlite",
+    "dep:serde_json",
+    "dep:tokio",
+    "dep:tokio-stream",
+    "dep:unicode-normalization",
+    "dep:ureq",
+]
+
+# Small WASM bundle for the browser.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[package.metadata.leptos]
+output-name = "spesa"
+bin-target = "spesa"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+style-file = "style/main.css"
+site-addr = "0.0.0.0:9080"
+reload-port = 9081
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
+lib-profile-release = "wasm-release"

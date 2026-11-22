@@ -1,0 +1,119 @@
+/* SpesaApp — on top of Bootstrap 5. Compact layout for phones. */
+
+body {
+	font-size: 14px;
+}
+
+.input-group .form-control,
+.input-group .input-group-text {
+	font-size: 14px;
+}
+
+/* One product per line */
+.row-item {
+	padding: 0 0.25rem;
+	margin-bottom: 0.25rem;
+}
+
+.row-item > .form-control {
+	min-height: 0;
+	padding: 0.15rem 0.4rem;
+}
+
+/* Long names wrap onto more lines */
+.row-item > .name {
+	white-space: normal;
+	overflow-wrap: anywhere;
+	background-color: var(--bs-gray-200);
+}
+
+.row-item > .grow {
+	resize: none;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	field-sizing: content;
+}
+
+/* Buttons with an icon (see src/icons.rs) */
+.icon {
+	width: 18px;
+	height: 18px;
+	vertical-align: middle;
+}
+
+.btn-icon {
+	flex: 0 0 28px;
+	padding: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.btn-add {
+	color: var(--bs-green);
+}
+
+.btn-add .icon {
+	width: 22px;
+	height: 22px;
+}
+
+/* Short fields */
+.input-group > .input-category {
+	flex: 0 0 52px;
+	width: 52px;
+}
+
+.input-group > .tag {
+	font-size: 9px;
+	padding: 0 4px;
+}
+
+/* "Tolti di recente" on the shopping list */
+.removed-title {
+	margin: 1.5rem 0.5rem 0.5rem;
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--bs-gray-600);
+}
+
+.row-item.removed > .name {
+	background-color: transparent;
+	color: var(--bs-gray-600);
+	text-decoration: line-through;
+}
+
+.row-item.removed > .when {
+	font-size: 12px;
+	color: var(--bs-gray-600);
+}
+
+/* Space between category groups on the shopping list */
+.group-gap {
+	height: 10px;
+}
+
+/* Autocompletion dropdown */
+.autocomplete-menu {
+	top: 100%;
+	left: 0;
+	right: 0;
+	max-height: 50vh;
+	overflow-y: auto;
+	font-size: 14px;
+}
+
+.autocomplete-menu .dropdown-item {
+	white-space: normal;
+}
+
+.autocomplete-menu .hint {
+	margin-left: 0.5rem;
+	color: var(--bs-gray-600);
+}
+
+.autocomplete-menu .active .hint {
+	color: inherit;
+}
