@@ -1,0 +1,9 @@
+/target
+/database.db
+/last_number.txt
+/config.ini
+lista.txt
+
+/alexa.json
+/.venv-alexa
+__pycache__/

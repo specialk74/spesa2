@@ -64,14 +64,14 @@ pub struct Alexa {
     login: Value,
     /// Retail site, e.g. `https://www.amazon.it`.
     site: String,
-    /// Alexa web site, e.g. `https://alexa.amazon.it`.
-    alexa_site: String,
     /// Amazon token service.
     api: String,
     language: String,
     agent: ureq::Agent,
-    /// Cookies set by Amazon during this session (e.g. `csrf`).
-    session_cookies: BTreeMap<String, String>,
+    /// Anti-CSRF cookies set by Amazon during this session, by host. The other
+    /// cookies of the answers are ignored: Amazon sends each of them twice (the
+    /// second one often deletes it), and they would override the login cookies.
+    session_cookies: BTreeMap<String, BTreeMap<String, String>>,
     shopping_list: Option<String>,
     /// Items already added to SpesaApp whose deletion from Alexa failed:
     /// they must not be added twice.
@@ -93,7 +93,6 @@ impl Alexa {
         let domain = site.rsplit_once("amazon.").map_or("com", |(_, d)| d).to_string();
         Ok(Self {
             file: file.to_path_buf(),
-            alexa_site: site.replacen("://www.", "://alexa.", 1),
             api: login
                 .get("api_url")
                 .and_then(Value::as_str)
@@ -118,10 +117,6 @@ impl Alexa {
     /// `add` is called with each name, then the item is deleted from Alexa.
     /// Returns how many items were moved.
     pub fn sync(&mut self, mut add: impl FnMut(&str) -> anyhow::Result<()>) -> Result<usize> {
-        if !self.session_cookies.contains_key("csrf") {
-            // Validates the login and obtains the anti-CSRF cookie.
-            self.call("GET", &format!("{}/api/users/me", self.alexa_site), None)?;
-        }
         let list = match &self.shopping_list {
             Some(id) => id.clone(),
             None => {
@@ -147,7 +142,6 @@ impl Alexa {
 
     /// Reads the active items of the Alexa shopping list without changing anything.
     pub fn peek(&mut self) -> Result<Vec<Item>> {
-        self.call("GET", &format!("{}/api/users/me", self.alexa_site), None)?;
         let list = self.find_shopping_list()?;
         self.items(&list)
     }
@@ -195,7 +189,7 @@ impl Alexa {
         }
     }
 
-    fn cookie_header(&self) -> String {
+    fn cookie_header(&self, host: &str) -> String {
         let mut cookies: BTreeMap<String, String> = self.login["website_cookies"]
             .as_object()
             .into_iter()
@@ -206,18 +200,19 @@ impl Alexa {
             cookies.insert("session-token".into(), token.into());
         }
         cookies.insert("lc-acbit".into(), self.language.clone());
-        cookies.extend(self.session_cookies.clone());
+        cookies.extend(self.session_cookies.get(host).cloned().unwrap_or_default());
         cookies.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ")
     }
 
     fn request(&mut self, method: &str, url: &str, body: Option<&Value>) -> Result<Value> {
+        let host = host_of(url).to_string();
         let headers = [
             ("Accept-Charset", "utf-8".to_string()),
             ("User-Agent", USER_AGENT.to_string()),
             ("Accept-Language", self.language.clone()),
-            ("Cookie", self.cookie_header()),
+            ("Cookie", self.cookie_header(&host)),
         ];
-        let csrf = self.session_cookies.get("csrf").cloned();
+        let csrf = self.session_cookies.get(&host).and_then(|c| c.get("csrf")).cloned();
         let response = match (method, body) {
             ("GET", _) => {
                 let mut req = self.agent.get(url);
@@ -254,13 +249,21 @@ impl Alexa {
                 .ok()
                 .and_then(|c| c.split(';').next())
                 .and_then(|c| c.split_once('='))
+                .filter(|(name, value)| name.trim() == "csrf" && !value.trim().is_empty())
             {
-                self.session_cookies.insert(name.trim().into(), value.trim().into());
+                self.session_cookies
+                    .entry(host.clone())
+                    .or_default()
+                    .insert(name.trim().into(), value.trim().into());
             }
         }
 
         let status = response.status().as_u16();
         let text = response.body_mut().read_to_string().unwrap_or_default();
+        if std::env::var_os("SPESA_ALEXA_DEBUG").is_some() {
+            let location = response.headers().get("location").and_then(|l| l.to_str().ok()).unwrap_or("");
+            eprintln!("alexa: {method} {url} -> {status} {location} [{} bytes]", text.len());
+        }
         match status {
             200..=299 if text.trim().is_empty() => Ok(Value::Null),
             200..=299 => serde_json::from_str(&text)
@@ -345,6 +348,12 @@ impl Alexa {
     }
 }
 
+/// Host part of a URL (`https://www.amazon.it/x` -> `www.amazon.it`).
+fn host_of(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    rest.split(['/', '?']).next().unwrap_or(rest)
+}
+
 /// `Accept-Language` for an Amazon domain (same choice as aioamazondevices).
 fn language_for(domain: &str) -> &'static str {
     match domain {
@@ -408,10 +417,10 @@ mod tests {
     use axum::extract::{Path as UrlPath, Query, State};
     use axum::http::{HeaderMap, StatusCode, header};
     use axum::response::{IntoResponse, Response};
-    use axum::routing::{delete, get, post};
+    use axum::routing::{delete, post};
     use axum::{Form, Json, Router};
 
-    /// Fake Amazon: valid session token "good", csrf "tok", one shopping list "L1".
+    /// Fake Amazon: valid session token "good", one shopping list "L1".
     #[derive(Default)]
     struct Fake {
         items: Vec<(String, String, &'static str)>, // id, name, status
@@ -424,16 +433,9 @@ mod tests {
     fn authorized(h: &HeaderMap) -> bool {
         h.get(header::COOKIE).and_then(|c| c.to_str().ok()).is_some_and(|c| c.contains("session-token=good"))
     }
+    /// Like the real API: a session cookie set by a response must be sent back.
     fn api_ok(h: &HeaderMap) -> bool {
-        authorized(h) && h.get("csrf").is_some_and(|v| v == "tok")
-    }
-
-    async fn users_me(h: HeaderMap) -> Response {
-        if !authorized(&h) {
-            return StatusCode::UNAUTHORIZED.into_response();
-        }
-        ([(header::SET_COOKIE, "csrf=tok; Path=/; Secure")], Json(json!({"id": "C1", "countryOfResidence": "IT"})))
-            .into_response()
+        authorized(h)
     }
     async fn token(State(s): State<Shared>, Form(form): Form<BTreeMap<String, String>>) -> Response {
         if form.get("source_token").map(String::as_str) != Some("refresh") || form["requested_token_type"] != "auth_cookies" {
@@ -448,13 +450,19 @@ mod tests {
     }
     async fn lists(h: HeaderMap) -> Response {
         if !api_ok(&h) {
-            return StatusCode::FORBIDDEN.into_response();
+            return StatusCode::UNAUTHORIZED.into_response();
         }
-        Json(json!({"listInfoList": [
+        (
+            [
+                (header::SET_COOKIE, "csrf=tok; Path=/; Secure"),
+                (header::SET_COOKIE, "session-token=; Expires=Thu, 01 Jan 1970 00:00:00 GMT"),
+            ],
+            Json(json!({"listInfoList": [
             {"listId": "T1", "listType": "TODO"},
             {"listId": "L1", "listType": "SHOP", "listName": null}
-        ]}))
-        .into_response()
+        ]})),
+        )
+            .into_response()
     }
     async fn items(State(s): State<Shared>, h: HeaderMap, UrlPath(list): UrlPath<String>) -> Response {
         if !api_ok(&h) || list != "L1" {
@@ -487,7 +495,6 @@ mod tests {
         std::thread::spawn(move || {
             tokio::runtime::Runtime::new().unwrap().block_on(async move {
                 let app = Router::new()
-                    .route("/api/users/me", get(users_me))
                     .route("/auth/token", post(token))
                     .route("/alexashoppinglists/api/v2/lists/fetch", post(lists))
                     .route("/alexashoppinglists/api/v2/lists/{list}/items/fetch", post(items))
@@ -576,6 +583,27 @@ mod tests {
 
         let err = Alexa::load(&file).unwrap().sync(|_| Ok(())).unwrap_err();
         assert!(matches!(err, AlexaError::Auth(_)), "{err}");
+    }
+
+    #[test]
+    fn session_cookies_stay_on_their_host() {
+        assert_eq!(host_of("https://www.amazon.it/x/y?z=1"), "www.amazon.it");
+        assert_eq!(host_of("http://127.0.0.1:9/a"), "127.0.0.1:9");
+        let mut alexa = Alexa::load(&login_file("https://www.amazon.it", "good")).unwrap();
+        alexa.session_cookies.entry("alexa.amazon.it".into()).or_default().insert("csrf".into(), "x".into());
+        assert!(!alexa.cookie_header("www.amazon.it").contains("csrf"));
+        assert!(alexa.cookie_header("alexa.amazon.it").contains("csrf=x"));
+    }
+
+    #[test]
+    fn answer_cookies_do_not_override_the_login() {
+        let state = Shared::default();
+        state.lock().unwrap().items = vec![("i1".into(), "pane".into(), "ACTIVE")];
+        let base = start_fake(state.clone());
+        let mut alexa = Alexa::load(&login_file(&base, "good")).unwrap();
+        // the fake's list endpoint also deletes "session-token" (like Amazon does)
+        assert_eq!(alexa.sync(|_| Ok(())).unwrap(), 1);
+        assert_eq!(state.lock().unwrap().renewals, 0, "no renewal needed");
     }
 
     #[test]

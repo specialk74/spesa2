@@ -75,7 +75,10 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Settings from Cargo.toml when built by cargo-leptos; the defaults below make
+    // the binary work also when built otherwise (e.g. cross-compiled for the Pi).
     let mut options = get_configuration(None)?.leptos_options;
+    options.output_name = env!("CARGO_PKG_NAME").into();
     if let Some(port) = args.port {
         options.site_addr = SocketAddr::from(([0, 0, 0, 0], port));
     }
