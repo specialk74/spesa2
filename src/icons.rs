@@ -34,6 +34,12 @@ pub fn IconArrowUp() -> impl IntoView {
     view! { <Icon path="M12 20V5M5 11.5L12 4.5l7 7"/> }
 }
 
+/// Cross: dismiss.
+#[component]
+pub fn IconClose() -> impl IntoView {
+    view! { <Icon path="M6.5 6.5l11 11M17.5 6.5l-11 11"/> }
+}
+
 /// Plus: add a product.
 #[component]
 pub fn IconPlus() -> impl IntoView {

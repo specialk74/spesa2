@@ -69,13 +69,24 @@ body {
 	padding: 0 4px;
 }
 
-/* "Tolti di recente" on the shopping list */
-.removed-title {
+/* Section titles ("Da ricomprare", "Tolti di recente"...) */
+.section-title {
 	margin: 1.5rem 0.5rem 0.5rem;
 	font-size: 12px;
 	font-weight: 600;
 	letter-spacing: 0.05em;
 	text-transform: uppercase;
+	color: var(--bs-gray-600);
+}
+
+/* "Da ricomprare": how often and when it was last bought */
+.row-item.suggested > .name {
+	background-color: var(--bs-white);
+}
+
+.row-item.suggested .freq {
+	display: block;
+	font-size: 12px;
 	color: var(--bs-gray-600);
 }
 

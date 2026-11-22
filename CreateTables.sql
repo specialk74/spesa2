@@ -17,6 +17,13 @@ CREATE TABLE history (
 	taken_at INTEGER
 );
 
+-- Suggestions dismissed with "non ora", until the given time (Unix seconds).
+DROP TABLE IF EXISTS postponed;
+CREATE TABLE postponed (
+	spesa_id INTEGER PRIMARY KEY,
+	until INTEGER NOT NULL
+);
+
 -- Time (Unix seconds) at which the product was taken, also when the row
 -- is inserted by programs that do not set it (e.g. the old Python app).
 CREATE TRIGGER history_taken_at AFTER INSERT ON history

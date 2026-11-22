@@ -21,6 +21,16 @@ pub struct Removed {
     pub when: String,
 }
 
+/// A product it is time to buy again, judging from when it was bought before.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Suggested {
+    pub product: Product,
+    /// Usual number of days between two purchases.
+    pub every_days: i64,
+    /// Days since the last purchase.
+    pub days_ago: i64,
+}
+
 /// Everything the UI needs, loaded in a single request.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct State {
@@ -30,6 +40,67 @@ pub struct State {
     pub list: Vec<Product>,
     /// Products taken most recently, newest first.
     pub removed: Vec<Removed>,
+    /// Catalog products due to be bought again, most overdue first.
+    pub suggested: Vec<Suggested>,
+}
+
+// ---------------------------------------------------------------------------
+// Purchase frequency
+
+/// Seconds in a day.
+pub const DAY: i64 = 86_400;
+/// Purchases closer than this count as one (same shopping trip, mistakes).
+const SAME_PURCHASE: i64 = DAY / 2;
+/// How many of the most recent intervals are considered (habits change).
+const RECENT_INTERVALS: usize = 5;
+
+/// Usual time (seconds) between two purchases, given the purchase times in
+/// ascending order: median of the most recent intervals, so that a single
+/// unusual gap does not count much. `None` with fewer than two purchases.
+pub fn usual_interval(times: &[i64]) -> Option<i64> {
+    let mut purchases: Vec<i64> = Vec::new();
+    for &t in times {
+        match purchases.last_mut() {
+            Some(last) if t - *last < SAME_PURCHASE => *last = t,
+            _ => purchases.push(t),
+        }
+    }
+    let gaps: Vec<i64> = purchases.windows(2).map(|w| w[1] - w[0]).collect();
+    let mut recent = gaps[gaps.len().saturating_sub(RECENT_INTERVALS)..].to_vec();
+    recent.sort_unstable();
+    let n = recent.len();
+    match n {
+        0 => None,
+        _ if n % 2 == 1 => Some(recent[n / 2]),
+        _ => Some((recent[n / 2 - 1] + recent[n / 2]) / 2),
+    }
+}
+
+/// A product is proposed again from 90% of its usual interval
+/// (e.g. a weekly product after about 6 days).
+pub fn is_due(last_purchase: i64, interval: i64, now: i64) -> bool {
+    (now - last_purchase) * 10 >= interval * 9
+}
+
+/// "ogni settimana", "ogni 2 settimane", "ogni mese", "ogni 10 giorni"...
+pub fn describe_every(days: i64) -> String {
+    match days {
+        ..=1 => "ogni giorno".into(),
+        7 => "ogni settimana".into(),
+        d if d % 7 == 0 && d <= 21 => format!("ogni {} settimane", d / 7),
+        28..=31 => "ogni mese".into(),
+        d if (56..=62).contains(&d) => "ogni 2 mesi".into(),
+        d => format!("ogni {d} giorni"),
+    }
+}
+
+/// "oggi", "ieri", "8 giorni fa".
+pub fn describe_ago(days: i64) -> String {
+    match days {
+        ..=0 => "oggi".into(),
+        1 => "ieri".into(),
+        d => format!("{d} giorni fa"),
+    }
 }
 
 /// Reference categories (value = position in the shop) offered by autocompletion.
@@ -176,6 +247,32 @@ mod tests {
         let list = vec![product(1, "a", 66), product(2, "b", 67), product(3, "c", 70)];
         let flags: Vec<_> = with_group_breaks(list).into_iter().map(|(_, b)| b).collect();
         assert_eq!(flags, vec![false, false, true]);
+    }
+
+    #[test]
+    fn purchase_frequency() {
+        let week = 7 * DAY;
+        // weekly, with one late purchase: the median ignores it
+        let t = [0, week, 2 * week, 5 * week, 6 * week, 7 * week];
+        assert_eq!(usual_interval(&t), Some(week));
+        // two takes on the same day count as one purchase
+        assert_eq!(usual_interval(&[0, 3600, 30 * DAY, 30 * DAY + 60]), Some(30 * DAY - 3600 + 60));
+        // only the last 5 intervals: monthly before, weekly now
+        let mut t: Vec<i64> = (0..5).map(|i| i * 30 * DAY).collect();
+        let start = t[4];
+        t.extend((1..=5).map(|i| start + i * week));
+        assert_eq!(usual_interval(&t), Some(week));
+        assert_eq!(usual_interval(&[5]), None);
+        assert_eq!(usual_interval(&[]), None);
+
+        assert!(!is_due(0, week, 6 * DAY));
+        assert!(is_due(0, week, 6 * DAY + DAY / 2));
+        assert_eq!(describe_every(7), "ogni settimana");
+        assert_eq!(describe_every(14), "ogni 2 settimane");
+        assert_eq!(describe_every(30), "ogni mese");
+        assert_eq!(describe_every(10), "ogni 10 giorni");
+        assert_eq!(describe_ago(1), "ieri");
+        assert_eq!(describe_ago(8), "8 giorni fa");
     }
 
     #[test]

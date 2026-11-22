@@ -9,11 +9,13 @@ use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::path;
 
-use crate::icons::{IconArrowUp, IconCheck, IconPlus};
-use crate::api::{add_product, get_state, put_back, restore_product, set_category, take_product};
+use crate::icons::{IconArrowUp, IconCheck, IconClose, IconPlus};
+use crate::api::{
+    add_product, get_state, postpone_product, put_back, restore_product, set_category, take_product,
+};
 use crate::model::{
-    Product, Removed, State, category_color, category_label, parse_category, suggest_categories,
-    suggest_products, with_group_breaks,
+    Product, Removed, State, Suggested, category_color, category_label, describe_ago,
+    describe_every, parse_category, suggest_categories, suggest_products, with_group_breaks,
 };
 
 const VERSION: &str = "4.0";
@@ -145,11 +147,15 @@ fn loading() -> impl IntoView {
 #[component]
 fn CatalogPage() -> impl IntoView {
     let ctx = ctx();
+    let suggested = move || ctx.loaded().suggested;
+    // the suggested products are shown only once, at the top
     let rows = move || {
-        ctx.loaded()
+        let state = ctx.loaded();
+        let shown_above: Vec<i64> = state.suggested.iter().map(|s| s.product.id).collect();
+        state
             .catalog
             .into_iter()
-            .filter(|p| p.count > 1)
+            .filter(|p| p.count > 1 && !shown_above.contains(&p.id))
             .collect::<Vec<_>>()
     };
     view! {
@@ -157,8 +163,57 @@ fn CatalogPage() -> impl IntoView {
         <NewProductForm/>
         <hr/>
         <Transition fallback=loading>
+            {move || {
+                (!suggested().is_empty())
+                    .then(|| view! { <h2 class="section-title">"Da ricomprare"</h2> })
+            }}
+            <For each=suggested key=|s| s.clone() children=|s| view! { <SuggestedRow suggested=s/> }/>
+            {move || {
+                (!suggested().is_empty())
+                    .then(|| view! { <h2 class="section-title">"Altri prodotti"</h2> })
+            }}
             <For each=rows key=|p| p.clone() children=|p| view! { <CatalogRow product=p/> }/>
         </Transition>
+    }
+}
+
+/// A product it is time to buy again: the arrow puts it on the list,
+/// the cross hides it until its next due time ("non ora").
+#[component]
+fn SuggestedRow(suggested: Suggested) -> impl IntoView {
+    let ctx = ctx();
+    let Suggested { product, every_days, days_ago } = suggested;
+    let done = RwSignal::new(false);
+    let (id, name, category) = (product.id, product.name.clone(), product.category);
+    let add = move |ev: SubmitEvent| {
+        ev.prevent_default();
+        done.set(true);
+        ctx.mutate(put_back(id, name.clone(), category));
+    };
+    let later = move |_| {
+        done.set(true);
+        ctx.mutate(postpone_product(id, every_days));
+    };
+    view! {
+        <form class="input-group input-group-sm row-item suggested" class:d-none=done on:submit=add>
+            <button class="btn btn-primary btn-icon btn-up" type="submit" title="Metti in lista">
+                <IconArrowUp/>
+            </button>
+            <div class="form-control name">
+                {product.name}
+                <small class="freq">
+                    {describe_every(every_days)} " · ultima volta " {describe_ago(days_ago)}
+                </small>
+            </div>
+            <button
+                class="btn btn-outline-secondary btn-icon btn-later"
+                type="button"
+                title="Non ora"
+                on:click=later
+            >
+                <IconClose/>
+            </button>
+        </form>
     }
 }
 
@@ -353,7 +408,7 @@ fn RemovedSection() -> impl IntoView {
     let rows = move || ctx.loaded().removed;
     view! {
         {move || {
-            (!rows().is_empty()).then(|| view! { <h2 class="removed-title">"Tolti di recente"</h2> })
+            (!rows().is_empty()).then(|| view! { <h2 class="section-title">"Tolti di recente"</h2> })
         }}
         <For each=rows key=|r| r.clone() children=|r| view! { <RemovedRow removed=r/> }/>
     }

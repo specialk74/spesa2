@@ -8,7 +8,9 @@ use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use unicode_normalization::UnicodeNormalization;
 
-use crate::model::{Product, Removed, State};
+use std::collections::{BTreeMap, HashSet};
+
+use crate::model::{DAY, Product, Removed, State, Suggested, is_due, usual_interval};
 
 /// Full schema (drops and recreates the tables), used by `init_db`.
 pub const CREATE_TABLES: &str = include_str!("../CreateTables.sql");
@@ -28,6 +30,10 @@ CREATE TABLE IF NOT EXISTS history (
 	spesa_id INTEGER NOT NULL,
 	taken_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS postponed (
+	spesa_id INTEGER PRIMARY KEY,
+	until INTEGER NOT NULL
+);
 ";
 
 /// Fills `history.taken_at` on insert (see CreateTables.sql).
@@ -42,8 +48,8 @@ END;
 /// How many recently taken products are shown.
 const RECENTLY_REMOVED: i64 = 20;
 
-/// Entries kept in the `history` table.
-const HISTORY_SIZE: i64 = 100;
+/// Days of history kept: enough to learn monthly (and rarer) habits.
+const HISTORY_DAYS: i64 = 400;
 
 static DB_PATH: OnceLock<PathBuf> = OnceLock::new();
 
@@ -242,19 +248,75 @@ fn recently_removed(conn: &Connection) -> rusqlite::Result<Vec<Removed>> {
     .collect()
 }
 
-/// Catalog, shopping list and recently taken products.
+/// Current time, Unix seconds.
+fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
+/// Catalog products due to be bought again at time `now`, most overdue first
+/// (products dismissed with "non ora" are left out until their time).
+fn suggested(conn: &Connection, catalog: &[Product], now: i64) -> rusqlite::Result<Vec<Suggested>> {
+    let mut purchases: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
+    let mut stmt = conn.prepare(
+        "SELECT spesa_id, taken_at FROM history WHERE taken_at IS NOT NULL ORDER BY taken_at",
+    )?;
+    for row in stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
+        let (id, at) = row?;
+        purchases.entry(id).or_default().push(at);
+    }
+    let postponed: HashSet<i64> = conn
+        .prepare("SELECT spesa_id FROM postponed WHERE until > ?")?
+        .query_map([now], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+
+    let mut due: Vec<(f64, Suggested)> = catalog
+        .iter()
+        .filter(|p| !postponed.contains(&p.id))
+        .filter_map(|p| {
+            let times = purchases.get(&p.id)?;
+            let interval = usual_interval(times)?;
+            let last = *times.last()?;
+            is_due(last, interval, now).then(|| {
+                let overdue = (now - last) as f64 / interval as f64;
+                let every_days = ((interval + DAY / 2) / DAY).max(1);
+                (overdue, Suggested { product: p.clone(), every_days, days_ago: (now - last) / DAY })
+            })
+        })
+        .collect();
+    due.sort_by(|a, b| b.0.total_cmp(&a.0));
+    Ok(due.into_iter().map(|(_, s)| s).collect())
+}
+
+/// Catalog, shopping list, recently taken and suggested products.
 pub fn load_state(conn: &Connection) -> rusqlite::Result<State> {
+    load_state_at(conn, now())
+}
+
+fn load_state_at(conn: &Connection, now: i64) -> rusqlite::Result<State> {
+    let catalog = products(
+        conn,
+        "SELECT id, name, category, count FROM spesa WHERE toTake=0 ORDER BY count DESC, name",
+    )?;
     Ok(State {
         removed: recently_removed(conn)?,
-        catalog: products(
-            conn,
-            "SELECT id, name, category, count FROM spesa WHERE toTake=0 ORDER BY count DESC, name",
-        )?,
+        suggested: suggested(conn, &catalog, now)?,
+        catalog,
         list: products(
             conn,
             "SELECT id, name, category, count FROM spesa WHERE toTake=1 ORDER BY category, name",
         )?,
     })
+}
+
+/// "Non ora": hides a suggestion for `days` days.
+pub fn postpone(conn: &Connection, id: i64, days: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO postponed (spesa_id, until) VALUES (?, ?)",
+        params![id, now() + days.max(1) * DAY],
+    )?;
+    Ok(())
 }
 
 /// Number of products on the shopping list.
@@ -351,14 +413,16 @@ pub fn set_category(conn: &Connection, id: i64, category: i64) -> rusqlite::Resu
     Ok(())
 }
 
-/// Marks a product as bought, recording it in the history (last 100 entries).
+/// Marks a product as bought, recording it in the history (kept for
+/// `HISTORY_DAYS` days) and clearing a "non ora" on it.
 pub fn take(conn: &mut Connection, id: i64) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute("UPDATE spesa SET toTake=0 WHERE id=?", [id])?;
     tx.execute("INSERT INTO history (spesa_id) VALUES (?)", [id])?;
+    tx.execute("DELETE FROM postponed WHERE spesa_id=?", [id])?;
     tx.execute(
-        "DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY id DESC LIMIT ?)",
-        [HISTORY_SIZE],
+        "DELETE FROM history WHERE taken_at < CAST(strftime('%s', 'now') AS INTEGER) - ?",
+        [HISTORY_DAYS * DAY],
     )?;
     tx.commit()
 }
@@ -541,15 +605,60 @@ mod tests {
     }
 
     #[test]
-    fn history_is_capped() {
+    fn history_keeps_the_last_400_days() {
         let mut conn = memory_db();
         add_product(&conn, "Pane", 35).unwrap();
-        for _ in 0..(HISTORY_SIZE + 20) {
-            take(&mut conn, 1).unwrap();
-        }
-        let (n, min): (i64, i64) = conn
-            .query_row("SELECT COUNT(*), MIN(id) FROM history", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        let t = now();
+        for days_ago in [500, 401, 399, 10] {
+            conn.execute(
+                "INSERT INTO history (spesa_id, taken_at) VALUES (1, ?)",
+                [t - days_ago * DAY],
+            )
             .unwrap();
-        assert_eq!((n, min), (HISTORY_SIZE, 21));
+        }
+        take(&mut conn, 1).unwrap();
+        let kept: i64 = conn.query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0)).unwrap();
+        assert_eq!(kept, 3, "399 and 10 days ago, plus today");
+    }
+
+    #[test]
+    fn suggests_by_frequency() {
+        let mut conn = memory_db();
+        for name in ["Latte", "Detersivo", "Pane", "Nuovo"] {
+            add_product(&conn, name, 35).unwrap();
+        }
+        conn.execute("UPDATE spesa SET toTake=0", []).unwrap();
+        let now = 1_000 * DAY;
+        let buy = |id: i64, days_ago: i64| {
+            conn.execute("INSERT INTO history (spesa_id, taken_at) VALUES (?, ?)", [id, now - days_ago * DAY]).unwrap();
+        };
+        // Latte weekly, last 8 days ago -> due (overdue 8/7)
+        for d in [36, 29, 22, 15, 8] { buy(1, d) }
+        // Detersivo monthly, last 28 days ago -> due (28/30 >= 0.9)
+        for d in [88, 58, 28] { buy(2, d) }
+        // Pane weekly, last 3 days ago -> not due
+        for d in [17, 10, 3] { buy(3, d) }
+        // Nuovo bought once -> unknown frequency
+        buy(4, 40);
+
+        let s = load_state_at(&conn, now).unwrap().suggested;
+        let got: Vec<_> = s.iter().map(|s| (s.product.name.as_str(), s.every_days, s.days_ago)).collect();
+        assert_eq!(got, [("Latte", 7, 8), ("Detersivo", 30, 28)]);
+
+        // products on the list are not suggested
+        conn.execute("UPDATE spesa SET toTake=1 WHERE id=1", []).unwrap();
+        assert_eq!(load_state_at(&conn, now).unwrap().suggested.len(), 1);
+        conn.execute("UPDATE spesa SET toTake=0 WHERE id=1", []).unwrap();
+
+        // "non ora" hides it until the time given
+        conn.execute("INSERT INTO postponed (spesa_id, until) VALUES (1, ?)", [now + 7 * DAY]).unwrap();
+        assert_eq!(load_state_at(&conn, now).unwrap().suggested.len(), 1);
+        let later: Vec<_> = load_state_at(&conn, now + 8 * DAY).unwrap().suggested
+            .into_iter().map(|s| s.product.name).collect();
+        assert_eq!(later, ["Latte", "Pane", "Detersivo"], "after the postponement (Pane is due by then)");
+        // taking the product clears the postponement
+        take(&mut conn, 1).unwrap();
+        let left: i64 = conn.query_row("SELECT COUNT(*) FROM postponed", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 0);
     }
 }

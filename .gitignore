@@ -7,3 +7,4 @@ lista.txt
 /alexa.json
 /.venv-alexa
 __pycache__/
+/backup-rpi

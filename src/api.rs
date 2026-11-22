@@ -34,6 +34,12 @@ pub async fn restore_product(id: i64) -> Result<(), ServerFnError> {
     crate::db::run(move |conn| crate::db::restore(conn, id)).await
 }
 
+/// "Non ora": hides the suggestion of a product for `days` days.
+#[server]
+pub async fn postpone_product(id: i64, days: i64) -> Result<(), ServerFnError> {
+    crate::db::run(move |conn| crate::db::postpone(conn, id, days)).await
+}
+
 /// Marks a product as bought.
 #[server]
 pub async fn take_product(id: i64) -> Result<(), ServerFnError> {

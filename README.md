@@ -48,7 +48,12 @@ cargo leptos build --release
 ./target/release/spesa --port 9080 --path ~/spesa-data
 ```
 
-- `/spesa`: prodotti da rimettere in lista (quelli comprati più di una volta), più il form per aggiungere
+- `/spesa`: prodotti da rimettere in lista (quelli comprati più di una volta), più il form per aggiungere.
+  In cima, **"Da ricomprare"** propone i prodotti che è ora di ricomprare in base a quanto spesso li
+  prendi: per ogni prodotto calcola l'intervallo tipico tra due acquisti (mediana degli ultimi 5) e lo
+  propone dal 90% di quell'intervallo, con l'indicazione "ogni settimana · ultima volta 8 giorni fa".
+  La freccia lo mette in lista; la **×** ("non ora") lo nasconde per un altro intervallo. Servono
+  almeno due acquisti registrati con l'ora per prodotto
 - `/spesa2`: la lista della spesa, raggruppata e colorata per categoria. In fondo, **"Tolti di
   recente"** mostra gli ultimi 20 prodotti tolti, dal più recente, con l'ora ("oggi 10:32").
   La freccia rimette il prodotto in lista se è stato tolto per sbaglio
@@ -161,8 +166,8 @@ scp alexa.json <utente>@<host>:spesa-rs/       # se usi Alexa
 - I campi categoria accettano solo numeri: un valore non valido viene evidenziato e non viene inviato.
 - I nomi dei prodotti vengono normalizzati anche quando li rinomini (apostrofi tipografici, spazi
   iniziali e finali).
-- La tabella `history` viene creata automaticamente e mantiene le ultime 100 voci, senza
-  `DELETE ... LIMIT`. All'avvio il server le aggiunge la colonna `taken_at` (ora in cui il
+- La tabella `history` viene creata automaticamente e conserva gli ultimi 400 giorni (prima: le
+  ultime 100 voci), per conoscere anche le abitudini mensili. All'avvio il server le aggiunge la colonna `taken_at` (ora in cui il
   prodotto è stato tolto), riempita da un trigger SQLite: funziona anche con l'app Python.
   Le voci registrate prima non hanno l'ora.
 - Tra un gruppo di categorie e l'altro c'è uno spazio (nel template Jinja originale non funzionava).
