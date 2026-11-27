@@ -23,35 +23,35 @@ path = "src/bin/telegram_bot.rs"
 required-features = ["ssr"]
 
 [dependencies]
-leptos = "0.8"
-leptos_meta = "0.8"
-leptos_router = "0.8"
-serde = { version = "1", features = ["derive"] }
+leptos = "0.8.23"
+leptos_meta = "0.8.7"
+leptos_router = "0.8.17"
+serde = { version = "1.0.229", features = ["derive"] }
 
 # hydrate (browser / WASM)
-console_error_panic_hook = { version = "0.1", optional = true }
-wasm-bindgen = { version = "0.2", optional = true }
-web-sys = { version = "0.3", features = [
+console_error_panic_hook = { version = "0.1.7", optional = true }
+wasm-bindgen = { version = "0.2.130", optional = true }
+web-sys = { version = "0.3.107", features = [
     "Event",
     "EventSource",
 ], optional = true }
 
 # ssr (server)
-anyhow = { version = "1", optional = true }
-axum = { version = "0.8", optional = true }
-clap = { version = "4", features = ["derive"], optional = true }
-leptos_axum = { version = "0.8", optional = true }
-rusqlite = { version = "0.43", features = ["bundled"], optional = true }
-serde_json = { version = "1", optional = true }
-tokio = { version = "1", features = [
+anyhow = { version = "1.0.105", optional = true }
+axum = { version = "0.8.9", optional = true }
+clap = { version = "4.6.10", features = ["derive"], optional = true }
+leptos_axum = { version = "0.8.10", optional = true }
+rusqlite = { version = "0.43.0", features = ["bundled"], optional = true }
+serde_json = { version = "1.0.154", optional = true }
+tokio = { version = "1.54.1", features = [
     "rt-multi-thread",
     "macros",
     "net",
     "sync",
 ], optional = true }
-tokio-stream = { version = "0.1", features = ["sync"], optional = true }
-unicode-normalization = { version = "0.1", optional = true }
-ureq = { version = "3", optional = true }
+tokio-stream = { version = "0.1.19", features = ["sync"], optional = true }
+unicode-normalization = { version = "0.1.26", optional = true }
+ureq = { version = "3.5.2", optional = true }
 
 [features]
 hydrate = [
