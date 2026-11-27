@@ -1,12 +1,12 @@
 /* SpesaApp — on top of Bootstrap 5. Compact layout for phones. */
 
 body {
-	font-size: 15px;
+	font-size: 16px;
 }
 
 .input-group .form-control,
 .input-group .input-group-text {
-	font-size: 15px;
+	font-size: 16px;
 }
 
 /* One product per line */
@@ -15,7 +15,7 @@ body {
 	margin-bottom: 0.25rem;
 }
 
-/* Same line heights as with the smaller fonts (font × 1.5), so the bigger
+/* Same line heights as with the old, smaller fonts (font × 1.5), so the bigger
    text does not make the rows taller */
 .row-item,
 .row-item .form-control,
@@ -83,14 +83,14 @@ body {
 }
 
 .input-group > .tag {
-	font-size: 10px;
+	font-size: 11px;
 	padding: 0 4px;
 }
 
 /* Section titles ("Da ricomprare", "Tolti di recente"...) */
 .section-title {
 	margin: 1.5rem 0.5rem 0.5rem;
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 600;
 	letter-spacing: 0.05em;
 	text-transform: uppercase;
@@ -104,7 +104,7 @@ body {
 
 .row-item.suggested .freq {
 	display: block;
-	font-size: 13px;
+	font-size: 14px;
 	line-height: 18px; /* as with the 12px font (12 × 1.5) */
 	color: var(--bs-gray-600);
 }
@@ -116,7 +116,7 @@ body {
 }
 
 .row-item.removed > .when {
-	font-size: 13px;
+	font-size: 14px;
 	color: var(--bs-gray-600);
 }
 
@@ -132,7 +132,7 @@ body {
 	right: 0;
 	max-height: 50vh;
 	overflow-y: auto;
-	font-size: 15px;
+	font-size: 16px;
 }
 
 .autocomplete-menu .dropdown-item {
