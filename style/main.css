@@ -27,11 +27,13 @@ body {
 	background-color: var(--bs-gray-200);
 }
 
-.row-item > .grow {
-	resize: none;
-	overflow: hidden;
-	overflow-wrap: anywhere;
-	field-sizing: content;
+.row-item > .row-btn {
+	text-align: left;
+	cursor: pointer;
+}
+
+.row-item > .row-btn.name:active {
+	background-color: var(--bs-gray-400);
 }
 
 /* Buttons with an icon (see src/icons.rs) */

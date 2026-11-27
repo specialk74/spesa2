@@ -9,7 +9,7 @@ use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::path;
 
-use crate::icons::{IconArrowUp, IconCheck, IconClose, IconPlus};
+use crate::icons::{IconClose, IconPlus};
 use crate::api::{
     add_product, get_state, postpone_product, put_back, restore_product, set_category, take_product,
 };
@@ -177,7 +177,7 @@ fn CatalogPage() -> impl IntoView {
     }
 }
 
-/// A product it is time to buy again: the arrow puts it on the list,
+/// A product it is time to buy again: tapping the row puts it on the list,
 /// the cross hides it until its next due time ("non ora").
 #[component]
 fn SuggestedRow(suggested: Suggested) -> impl IntoView {
@@ -196,15 +196,12 @@ fn SuggestedRow(suggested: Suggested) -> impl IntoView {
     };
     view! {
         <form class="input-group input-group-sm row-item suggested" class:d-none=done on:submit=add>
-            <button class="btn btn-primary btn-icon btn-up" type="submit" title="Metti in lista">
-                <IconArrowUp/>
-            </button>
-            <div class="form-control name">
+            <button class="form-control name row-btn" type="submit" title="Metti in lista">
                 {product.name}
                 <small class="freq">
                     {describe_every(every_days)} " · ultima volta " {describe_ago(days_ago)}
                 </small>
-            </div>
+            </button>
             <button
                 class="btn btn-outline-secondary btn-icon btn-later"
                 type="button"
@@ -326,13 +323,14 @@ fn NewProductForm() -> impl IntoView {
     }
 }
 
-/// A catalog product: edit name/category and put it back on the list.
+/// A catalog product: tapping the row (or Enter on the category) puts it back on the list.
 #[component]
 fn CatalogRow(product: Product) -> impl IntoView {
     let ctx = ctx();
     let id = product.id;
     let done = RwSignal::new(false);
-    let name = RwSignal::new(product.name);
+    let name = product.name;
+    let label = name.clone();
     let category = RwSignal::new(product.category.to_string());
     let invalid = RwSignal::new(false);
 
@@ -343,7 +341,7 @@ fn CatalogRow(product: Product) -> impl IntoView {
         };
         invalid.set(false);
         done.set(true);
-        ctx.mutate(put_back(id, name.get_untracked(), cat));
+        ctx.mutate(put_back(id, name.clone(), cat));
     };
     let submit = move |ev: SubmitEvent| {
         ev.prevent_default();
@@ -352,17 +350,16 @@ fn CatalogRow(product: Product) -> impl IntoView {
 
     view! {
         <form class="input-group input-group-sm row-item" class:d-none=done on:submit=submit>
-            <button class="btn btn-primary btn-icon btn-up" type="submit" title="Rimetti in lista">
-                <IconArrowUp/>
+            <button class="form-control name row-btn" type="submit" title="Rimetti in lista">
+                {label}
             </button>
-            <GrowingText value=name on_enter=Callback::new(move |()| send())/>
             <span class="input-group-text tag">"C"</span>
             <CategoryInput value=category invalid/>
         </form>
     }
 }
 
-/// A product on the shopping list: tick it when taken, Enter on the category saves it.
+/// A product on the shopping list: tap the row when taken, Enter on the category saves it.
 #[component]
 fn ListRow(product: Product, group_break: bool) -> impl IntoView {
     let ctx = ctx();
@@ -390,12 +387,14 @@ fn ListRow(product: Product, group_break: bool) -> impl IntoView {
     view! {
         {group_break.then(|| view! { <div class="group-gap"></div> })}
         <form class="input-group input-group-sm row-item" class:d-none=done on:submit=take>
-            <button class="btn btn-success btn-icon btn-take" type="submit" title="Preso">
-                <IconCheck/>
-            </button>
-            <div class="form-control fw-bold name" style:color=category_color(original)>
+            <button
+                class="form-control fw-bold name row-btn"
+                type="submit"
+                title="Preso"
+                style:color=category_color(original)
+            >
                 {product.name}
-            </div>
+            </button>
             <CategoryInput value=category invalid on_commit=Some(save)/>
         </form>
     }
@@ -414,7 +413,7 @@ fn RemovedSection() -> impl IntoView {
     }
 }
 
-/// A product recently taken: the button puts it back on the list.
+/// A product recently taken: tapping the row puts it back on the list.
 #[component]
 fn RemovedRow(removed: Removed) -> impl IntoView {
     let ctx = ctx();
@@ -427,59 +426,12 @@ fn RemovedRow(removed: Removed) -> impl IntoView {
     };
     view! {
         <form class="input-group input-group-sm row-item removed" class:d-none=done on:submit=submit>
-            <button class="btn btn-outline-secondary btn-icon btn-restore" type="submit" title="Rimetti in lista">
-                <IconArrowUp/>
+            <button class="form-control name row-btn" type="submit" title="Rimetti in lista">
+                {removed.product.name}
             </button>
-            <div class="form-control name">{removed.product.name}</div>
             {(!removed.when.is_empty())
                 .then(|| view! { <span class="input-group-text when">{removed.when}</span> })}
         </form>
-    }
-}
-
-/// Single-line text field that wraps long text and grows in height to show it all.
-/// Enter does not insert a new line: it calls `on_enter`.
-#[component]
-fn GrowingText(value: RwSignal<String>, on_enter: Callback<()>) -> impl IntoView {
-    let node = NodeRef::<leptos::html::Textarea>::new();
-    // Height = content height. Browsers supporting `field-sizing: content`
-    // (see main.css) already do this, also before the WASM is loaded.
-    let fit = move || {
-        if let Some(el) = node.get_untracked() {
-            let style = leptos::web_sys::HtmlElement::style(&el);
-            let _ = style.set_property("height", "auto");
-            let border = el.offset_height() - el.client_height();
-            let _ = style.set_property("height", &format!("{}px", el.scroll_height() + border));
-        }
-    };
-    Effect::new(move |_| {
-        if node.get().is_some() {
-            fit();
-        }
-    });
-    let resize = window_event_listener(leptos::ev::resize, move |_| fit());
-    on_cleanup(move || resize.remove());
-
-    view! {
-        <textarea
-            node_ref=node
-            class="form-control grow"
-            rows="1"
-            spellcheck="false"
-            prop:value=value
-            on:input=move |ev| {
-                value.set(event_target_value(&ev).replace(['\n', '\r'], " "));
-                fit();
-            }
-            on:keydown=move |ev: KeyboardEvent| {
-                if ev.key() == "Enter" {
-                    ev.prevent_default();
-                    on_enter.run(());
-                }
-            }
-        >
-            {value.get_untracked()}
-        </textarea>
     }
 }
 

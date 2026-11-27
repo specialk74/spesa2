@@ -22,18 +22,6 @@ fn Icon(path: &'static str) -> impl IntoView {
     }
 }
 
-/// Check mark: product taken.
-#[component]
-pub fn IconCheck() -> impl IntoView {
-    view! { <Icon path="M4 12.5l5 5L20 6.5"/> }
-}
-
-/// Arrow up: put the product back on the list.
-#[component]
-pub fn IconArrowUp() -> impl IntoView {
-    view! { <Icon path="M12 20V5M5 11.5L12 4.5l7 7"/> }
-}
-
 /// Cross: dismiss.
 #[component]
 pub fn IconClose() -> impl IntoView {
