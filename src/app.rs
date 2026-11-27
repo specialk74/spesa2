@@ -18,7 +18,8 @@ use crate::model::{
     describe_every, parse_category, suggest_categories, suggest_products, with_group_breaks,
 };
 
-const VERSION: &str = "4.0";
+/// Shown in the navbar: the `version` in Cargo.toml.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Server-Sent Events endpoint notifying database changes.
 pub const EVENTS_URL: &str = "/api/events";

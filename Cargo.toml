@@ -1,6 +1,6 @@
 [package]
 name = "spesa"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "SpesaApp - lista della spesa (Leptos full-stack)"
 
@@ -31,7 +31,10 @@ serde = { version = "1", features = ["derive"] }
 # hydrate (browser / WASM)
 console_error_panic_hook = { version = "0.1", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
-web-sys = { version = "0.3", features = ["Event", "EventSource"], optional = true }
+web-sys = { version = "0.3", features = [
+    "Event",
+    "EventSource",
+], optional = true }
 
 # ssr (server)
 anyhow = { version = "1", optional = true }
@@ -40,7 +43,12 @@ clap = { version = "4", features = ["derive"], optional = true }
 leptos_axum = { version = "0.8", optional = true }
 rusqlite = { version = "0.43", features = ["bundled"], optional = true }
 serde_json = { version = "1", optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"], optional = true }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "sync",
+], optional = true }
 tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 unicode-normalization = { version = "0.1", optional = true }
 ureq = { version = "3", optional = true }

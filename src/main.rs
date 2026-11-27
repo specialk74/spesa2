@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use axum::Router;
+use axum::http::{HeaderValue, header};
+use axum::response::Response;
 use axum::response::Redirect;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::get;
@@ -51,6 +53,17 @@ fn db_events(changes: watch::Receiver<u64>) -> Sse<impl Stream<Item = Result<Eve
     let stream = WatchStream::from_changes(changes)
         .map(|n| Ok(Event::default().event("db").data(n.to_string())));
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// Makes the browser check every time that its copy (above all `pkg/spesa.js`
+/// and `pkg/spesa.wasm`) is still current. Without it, after an update the browser
+/// may keep running the old WASM on the new pages: hydration fails and the links
+/// stop working. Unchanged files cost only a short "304 Not Modified" reply.
+async fn no_cache(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
 }
 
 /// `site` directory next to the executable, used when deployed.
@@ -108,7 +121,8 @@ async fn main() -> anyhow::Result<()> {
             move || shell(options.clone())
         })
         .fallback(leptos_axum::file_and_error_handler(shell))
-        .with_state(options);
+        .with_state(options)
+        .layer(axum::middleware::map_response(no_cache));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("Listening on http://{addr}/spesa");
