@@ -1,0 +1,6 @@
+[env]
+# Name of the JS/WASM files in target/site/pkg (spesa.js, spesa.wasm).
+# cargo-leptos sets it by itself; this makes the server built otherwise
+# (e.g. `cargo zigbuild` for the Raspberry Pi) link the same files: without
+# it, the pages ask for `spesa_bg.wasm`, which does not exist, and stay dead.
+LEPTOS_OUTPUT_NAME = "spesa"
