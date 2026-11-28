@@ -141,17 +141,108 @@ Su un Raspberry Pi a 32 bit (armv7), soprattutto con un sistema operativo datato
 sicura è un binario statico musl. Il frontend (WASM) non dipende dall'architettura.
 Sostituisci `<utente>@<host>` e le cartelle con quelli del tuo Pi.
 
-```sh
-cargo leptos build --release                    # genera target/site
-cargo install cross                             # richiede Docker
-cross build --release --features ssr --bins --target armv7-unknown-linux-musleabihf
+### In breve: `tools/deploy-rpi.sh`
 
-ssh <utente>@<host> mkdir -p spesa-rs
-scp target/armv7-unknown-linux-musleabihf/release/{spesa,telegram_bot} <utente>@<host>:spesa-rs/
-scp -r target/site <utente>@<host>:spesa-rs/site
-scp alexa.json <utente>@<host>:spesa-rs/       # se usi Alexa
-# sul Pi (database.db nella cartella indicata da --path):
-~/spesa-rs/spesa --port 9080 --path <cartella-dati> --alexa ~/spesa-rs/alexa.json
+Lo script fa tutti i passi descritti sotto: compila, fa il backup sul Pi, copia, sostituisce,
+riavvia e verifica. Se la verifica fallisce, stampa i comandi per tornare indietro.
+
+```sh
+cp deploy.env.example deploy.env     # una volta sola: indirizzo del Pi, servizi, porte
+tools/deploy-rpi.sh                  # server + frontend, con riavvio
+tools/deploy-rpi.sh --css            # solo il frontend (es. style/main.css), senza riavvio
+tools/deploy-rpi.sh --bot            # anche telegram_bot
+```
+
+`deploy.env` è escluso da git. Serve l'accesso ssh con chiave e `sudo` senza password per
+`systemctl` sul Pi.
+
+### Cosa serve sul Mac
+
+```sh
+rustup target add armv7-unknown-linux-musleabihf
+cargo install cargo-zigbuild --locked && brew install zig    # oppure `cross`, che richiede Docker
+```
+
+### 1. Compilare
+
+```sh
+cargo leptos build --release            # frontend: target/site (JS, WASM, CSS)
+cargo zigbuild --release --features ssr --bins --target armv7-unknown-linux-musleabihf
+# con cross: cross build --release --features ssr --bins --target armv7-unknown-linux-musleabihf
+```
+
+I binari per il Pi finiscono in `target/armv7-unknown-linux-musleabihf/release/`
+(`spesa`, `telegram_bot`, `init_db`).
+
+`.cargo/config.toml` imposta `LEPTOS_OUTPUT_NAME = "spesa"`: cargo-leptos lo fa da solo, ma
+`zigbuild`/`cross` no. Senza, il server fa chiedere alle pagine `pkg/spesa_bg.wasm`, che non
+esiste: le pagine si vedono, ma i bottoni non fanno niente (funzionano solo i link della barra).
+
+### 2. Cosa copiare
+
+| Cosa è cambiato | Da copiare | Riavvio |
+|---|---|---|
+| solo `style/main.css` | `target/site` | no: i file sono letti a ogni richiesta |
+| codice Rust, dipendenze o `version` in `Cargo.toml` | `spesa` **e** `target/site` insieme | sì |
+| `src/bin/telegram_bot.rs` (o `db.rs`, `model.rs`) | anche `telegram_bot` | no: lo lancia cron |
+
+Server e WASM vanno aggiornati **insieme**: se la pagina generata dal server e il WASM non
+combaciano (anche solo il numero di versione), la pagina si blocca.
+
+### 3. Backup, copia e sostituzione
+
+Prima si fa il backup, poi si copiano i file nuovi con un nome temporaneo e solo alla fine si
+sostituiscono quelli vecchi, così il servizio non vede mai file a metà.
+
+```sh
+T=$(date +%Y%m%d-%H%M%S)
+ssh <utente>@<host> "cd spesa-rs && mkdir -p backup &&
+  cp -p spesa backup/spesa-prima-$T && cp -rp site backup/site-prima-$T"
+
+scp target/armv7-unknown-linux-musleabihf/release/spesa <utente>@<host>:spesa-rs/spesa.new
+scp -r target/site <utente>@<host>:spesa-rs/site.new
+# solo se è cambiato il bot:
+# scp target/armv7-unknown-linux-musleabihf/release/telegram_bot <utente>@<host>:spesa-rs/telegram_bot.new
+
+ssh <utente>@<host> "cd spesa-rs &&
+  mv spesa.new spesa &&
+  mv site site.old && mv site.new site && rm -rf site.old &&
+  sudo systemctl restart spesa"
+```
+
+La prima installazione: `ssh <utente>@<host> mkdir -p spesa-rs`, poi copia `spesa`,
+`telegram_bot`, `target/site` (come `spesa-rs/site`) e, se usi Alexa, `alexa.json`. Avvio:
+
+```sh
+~/spesa-rs/spesa --port 9080 --path <cartella-dati> --site ~/spesa-rs/site --alexa ~/spesa-rs/alexa.json
+```
+
+Per tenerlo sempre attivo conviene un servizio systemd (nell'esempio sopra si chiama `spesa`)
+con questa riga come `ExecStart`.
+
+### 4. Verificare
+
+Sul Pi:
+
+```sh
+systemctl is-active spesa                                     # active
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9080/spesa2     # 200
+curl -s http://127.0.0.1:9080/spesa | grep -o 'href="/pkg/spesa.wasm"'   # NON spesa_bg.wasm
+curl -s http://127.0.0.1:9080/spesa | grep -o 'SpesaApp - v <!>[^<]*'   # versione nuova
+sudo journalctl -u spesa -n 20 --no-pager
+```
+
+Dal telefono basta ricaricare la pagina: il server manda `Cache-Control: no-cache`, quindi il
+browser controlla ogni volta se i file sono cambiati (se no riceve un "304 Not Modified" vuoto,
+senza riscaricare il WASM).
+
+### Tornare indietro
+
+```sh
+cd ~/spesa-rs
+cp backup/spesa-prima-<data> spesa.new && mv spesa.new spesa
+rm -rf site && cp -r backup/site-prima-<data> site
+sudo systemctl restart spesa
 ```
 
 ## Differenze rispetto all'originale

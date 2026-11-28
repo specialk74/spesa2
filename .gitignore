@@ -8,3 +8,5 @@ lista.txt
 /.venv-alexa
 __pycache__/
 /backup-rpi
+
+/deploy.env
