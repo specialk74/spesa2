@@ -2097,7 +2097,7 @@ dependencies = [
 
 [[package]]
 name = "spesa"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2112,6 +2112,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-stream",
+ "tower-http",
  "unicode-normalization",
  "ureq",
  "wasm-bindgen",

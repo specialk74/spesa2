@@ -18,6 +18,7 @@ use tokio_stream::{Stream, StreamExt, wrappers::WatchStream};
 use clap::Parser;
 use leptos::prelude::*;
 use leptos_axum::{LeptosRoutes, generate_route_list};
+use tower_http::services::ServeDir;
 use spesa::app::{App, shell};
 
 #[derive(Parser, Debug)]
@@ -109,6 +110,11 @@ async fn main() -> anyhow::Result<()> {
     println!("Assets:   {}", options.site_root);
 
     let addr = options.site_addr;
+    // JS/WASM/CSS served here and not by `file_and_error_handler`: that one drops
+    // the request headers, so it never answers "304 Not Modified" and, with
+    // `no_cache`, the browser would download the whole WASM at every page load.
+    let pkg_dir = PathBuf::from(options.site_root.as_ref()).join(options.site_pkg_dir.as_ref());
+    let pkg_url = format!("/{}", options.site_pkg_dir);
     let routes = generate_route_list(App);
     let app = Router::new()
         .route("/", get(|| async { Redirect::permanent("/spesa") }))
@@ -120,6 +126,7 @@ async fn main() -> anyhow::Result<()> {
             let options = options.clone();
             move || shell(options.clone())
         })
+        .nest_service(&pkg_url, ServeDir::new(pkg_dir))
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(options)
         .layer(axum::middleware::map_response(no_cache));

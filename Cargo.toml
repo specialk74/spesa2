@@ -1,6 +1,6 @@
 [package]
 name = "spesa"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "SpesaApp - lista della spesa (Leptos full-stack)"
 
@@ -50,6 +50,7 @@ tokio = { version = "1.54.1", features = [
     "sync",
 ], optional = true }
 tokio-stream = { version = "0.1.19", features = ["sync"], optional = true }
+tower-http = { version = "0.6.11", features = ["fs"], optional = true }
 unicode-normalization = { version = "0.1.26", optional = true }
 ureq = { version = "3.5.2", optional = true }
 
@@ -72,6 +73,7 @@ ssr = [
     "dep:serde_json",
     "dep:tokio",
     "dep:tokio-stream",
+    "dep:tower-http",
     "dep:unicode-normalization",
     "dep:ureq",
 ]
